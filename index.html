@@ -471,17 +471,8 @@
 
   <div class="preview" id="preview"></div>
 
-  <div class="backup-row">
-    <button class="backup-link" id="backupBtn">Copy backup</button>
-    <span class="backup-sep">·</span>
-    <button class="backup-link" id="restoreBtn">Restore from backup</button>
-  </div>
-  <div class="backup-panel" id="backupPanel" style="display:none;"></div>
-
   <div class="footer-note">
-    Tasks rotate automatically each week — nobody has to remember whose turn it is.<br>
-    This copy saves changes on this device only. Send the file itself to your housemate so they have their own copy, and use the backup buttons below to sync any edits between you.
-  </div>
+    Weekly cleaning rota for Seán and Danny to keep on top of things fairly
 
 </div>
 
@@ -1027,8 +1018,6 @@
       if(e.key === 'Enter') addChore();
     });
     document.getElementById('swapToggle').onclick = toggleSwap;
-    document.getElementById('backupBtn').onclick = openBackupView;
-    document.getElementById('restoreBtn').onclick = openRestoreView;
   }
 
   init();
