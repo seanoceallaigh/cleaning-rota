@@ -59,7 +59,6 @@
     color: var(--ink-soft);
   }
 
-  /* Rotation dial - signature element */
   .dial{
     background: var(--paper);
     border:1px solid var(--line);
@@ -167,7 +166,6 @@
   .swap-toggle:hover{ border-color: var(--ink-soft); }
   .swap-toggle.active{ color: var(--mustard); border-color: var(--mustard); }
 
-  /* Chore list */
   .section-label{
     font-family:'IBM Plex Mono', monospace;
     font-size:11px;
@@ -344,7 +342,6 @@
   }
   .add-row button:hover{ background:#243d33; }
 
-  /* Next week preview */
   .preview{
     margin-top: 22px;
     border:1px dashed var(--line);
@@ -372,25 +369,6 @@
     text-align:center;
   }
 
-  .backup-row{
-    margin-top:20px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-  }
-  .backup-sep{ color: var(--line); font-size:12px; }
-  .backup-link{
-    background:none;border:none;cursor:pointer;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:11px;
-    color: var(--ink-soft);
-    text-decoration:underline;
-    text-underline-offset:2px;
-    padding:4px;
-  }
-  .backup-link:hover{ color: var(--pine); }
-
   .storage-warning{
     background: #fbeee0;
     border: 1px solid #e0b979;
@@ -402,29 +380,18 @@
     margin-bottom: 14px;
   }
 
-  .backup-panel{
-    margin-top:12px;
-    background: var(--paper);
-    border:1px solid var(--line);
-    border-radius: 12px;
-    padding: 14px;
-  }
-  .backup-hint{
-    font-size:12.5px;
+  .sync-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
     color: var(--ink-soft);
-    margin-bottom:8px;
-    line-height:1.4;
+    display:flex;
+    align-items:center;
+    gap:5px;
+    margin-top:6px;
   }
-  .backup-panel .spec-textarea{
-    min-height:120px;
-    margin-top:0;
-  }
-  .backup-panel .spec-edit-actions{
-    margin-top:10px;
-  }
-  .copy-btn{
-    background: var(--pine);
-    color:#fff;
+  .sync-dot{
+    width:7px;height:7px;border-radius:50%;
+    background: var(--mustard);
   }
 
   .empty{
@@ -461,6 +428,7 @@
       <div class="progress-label" id="progressLabel">0/0 done</div>
     </div>
     <button class="swap-toggle" id="swapToggle">↻ swap assignments for this week only</button>
+    <div class="sync-badge"><span class="sync-dot"></span><span id="syncLabel">syncing…</span></div>
   </div>
 
   <div class="section-label">This week's chores</div>
@@ -475,13 +443,29 @@
   <div class="preview" id="preview"></div>
 
   <div class="footer-note">
-    Weekly cleaning rota for Seán and Danny to keep on top of things fairly
+    Tasks rotate automatically each week — nobody has to remember whose turn it is.<br>
+    Changes sync automatically between devices — nothing to send or copy between you and your housemate.
+  </div>
 
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCmxsG_OkIu09nWpAfBQmbZWHh4ZedPMvw",
+  authDomain: "cleaning-rota-7c69f.firebaseapp.com",
+  projectId: "cleaning-rota-7c69f",
+  storageBucket: "cleaning-rota-7c69f.firebasestorage.app",
+  messagingSenderId: "82028326722",
+  appId: "1:82028326722:web:91f7863cbc11b3f9b4a2db"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
 (function(){
-  const CONFIG_KEY = 'rota_config';
   const DEFAULT_CHORES = [
     'Kitchen weekly clean',
     'Bathroom clean',
@@ -491,8 +475,6 @@
     'Bedding & laundry'
   ];
 
-  // Fallback specs shown for recognised chore names when no custom spec has been saved.
-  // Keyed by lowercase, trimmed chore name.
   const DEFAULT_SPECS = {
     'kitchen weekly clean': [
       'Wash up / empty the dishwasher',
@@ -550,16 +532,16 @@
 
   let state = {
     people: ['Seán', 'Danny'],
-    chores: [] // {id, name, spec?: string[]}
+    chores: []
   };
   let weekInfo = null;
   let weekKey = '';
-  let swapKey = '';
-  let doneKey = '';
   let completions = {};
   let swapped = false;
   const expandedIds = new Set();
   let editingSpecId = null;
+  let configDocRef = null;
+  let weekDocRef = null;
 
   function uid(){
     return Math.random().toString(36).slice(2,9);
@@ -577,7 +559,7 @@
   }
 
   function getWeekRange(date){
-    const day = (date.getDay() + 6) % 7; // 0 = Monday
+    const day = (date.getDay() + 6) % 7;
     const monday = new Date(date);
     monday.setDate(date.getDate() - day);
     const sunday = new Date(monday);
@@ -590,21 +572,9 @@
     return (name || '?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
   }
 
-  // --- Storage: this file runs as a standalone page (opened directly in the
-  // browser rather than through Claude's hosted artifact viewer), so it uses
-  // the browser's own localStorage instead of Claude's window.storage API.
-  // That means data lives on THIS device/browser only — use Copy Backup /
-  // Restore from backup to bring another device's copy up to date.
-  let storageBlocked = false;
-
-  function storageGet(key){
-    try{ return localStorage.getItem(key); }
-    catch(e){ storageBlocked = true; return null; }
-  }
-
-  function storageSet(key, value){
-    try{ localStorage.setItem(key, value); return true; }
-    catch(e){ storageBlocked = true; return false; }
+  function setSyncLabel(text){
+    const el = document.getElementById('syncLabel');
+    if(el) el.textContent = text;
   }
 
   function showStorageWarning(){
@@ -612,49 +582,58 @@
     const banner = document.createElement('div');
     banner.id = 'storageWarning';
     banner.className = 'storage-warning';
-    banner.textContent = "This browser is blocking local storage, so changes won't be saved when you close this tab. Use Copy backup after making changes, and Restore from backup next time you open it.";
+    banner.textContent = "Couldn't reach the shared database — check your internet connection. Changes made now may not save until you're back online.";
     document.querySelector('.app').insertBefore(banner, document.querySelector('.dial'));
   }
 
   async function loadConfig(){
-    const raw = storageGet(CONFIG_KEY);
-    if(raw){
-      try{
-        const parsed = JSON.parse(raw);
-        if(parsed.people && parsed.chores){
-          state = parsed;
+    try{
+      const snap = await getDoc(configDocRef);
+      if(snap.exists()){
+        const data = snap.data();
+        if(Array.isArray(data.people) && Array.isArray(data.chores)){
+          state = { people: data.people, chores: data.chores };
           return;
         }
-      }catch(e){ /* fall through to defaults */ }
-    }
-    // first run on this browser: seed defaults
+      }
+    }catch(e){ console.error(e); showStorageWarning(); }
     state.chores = DEFAULT_CHORES.map(name => ({ id: uid(), name }));
     await saveConfig();
   }
 
   async function saveConfig(){
-    const ok = storageSet(CONFIG_KEY, JSON.stringify(state));
-    if(!ok) showStorageWarning();
+    try{
+      await setDoc(configDocRef, { people: state.people, chores: state.chores });
+    }catch(e){ console.error(e); showStorageWarning(); }
   }
 
   async function loadWeekData(){
-    const raw = storageGet(doneKey);
-    try{ completions = raw ? JSON.parse(raw) : {}; }
-    catch(e){ completions = {}; }
-    const rawSwap = storageGet(swapKey);
-    try{ swapped = rawSwap ? JSON.parse(rawSwap) === true : false; }
-    catch(e){ swapped = false; }
+    try{
+      const snap = await getDoc(weekDocRef);
+      if(snap.exists()){
+        const data = snap.data();
+        completions = data.completions || {};
+        swapped = !!data.swapped;
+      } else {
+        completions = {};
+        swapped = false;
+      }
+    }catch(e){
+      console.error(e);
+      completions = {};
+      swapped = false;
+      showStorageWarning();
+    }
   }
 
-  async function saveCompletions(){
-    const ok = storageSet(doneKey, JSON.stringify(completions));
-    if(!ok) showStorageWarning();
+  async function saveWeekData(){
+    try{
+      await setDoc(weekDocRef, { completions, swapped }, { merge: true });
+    }catch(e){ console.error(e); showStorageWarning(); }
   }
 
-  async function saveSwap(){
-    const ok = storageSet(swapKey, JSON.stringify(swapped));
-    if(!ok) showStorageWarning();
-  }
+  async function saveCompletions(){ await saveWeekData(); }
+  async function saveSwap(){ await saveWeekData(); }
 
   function assignedIndexFor(week, isSwapped){
     let base = week % 2;
@@ -663,13 +642,11 @@
   }
 
   function render(){
-    // header
     const now = new Date();
     document.getElementById('todayLabel').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
     document.getElementById('weekNum').textContent = 'W' + weekInfo.week;
     document.getElementById('weekRange').textContent = getWeekRange(now);
 
-    // chips
     const onDutyIdx = assignedIndexFor(weekInfo.week, swapped);
     const chips = document.getElementById('chips');
     chips.innerHTML = '';
@@ -688,18 +665,16 @@
       }
     });
 
-    // swap toggle
     const swapBtn = document.getElementById('swapToggle');
     swapBtn.textContent = swapped ? '↻ swapped for this week — click to undo' : '↻ swap assignments for this week only';
     swapBtn.className = 'swap-toggle' + (swapped ? ' active' : '');
 
-    // chore list
     const list = document.getElementById('choreList');
     list.innerHTML = '';
     document.getElementById('emptyState').style.display = state.chores.length ? 'none' : 'block';
 
     let doneCount = 0;
-    state.chores.forEach((chore, idx) => {
+    state.chores.forEach((chore) => {
       const personIdx = onDutyIdx;
       const person = state.people[personIdx];
       const isDone = !!completions[chore.id];
@@ -712,7 +687,7 @@
       row.className = 'chore' + (isDone ? ' done' : '');
 
       const avatar = document.createElement('div');
-      avatar.className = 'avatar p' + personIdx + '-avatar';
+      avatar.className = 'avatar';
       avatar.style.background = personIdx === 0 ? 'var(--pine)' : 'var(--slate)';
       avatar.textContent = initials(person);
       avatar.title = person;
@@ -754,17 +729,15 @@
       list.appendChild(card);
     });
 
-    // progress
     const total = state.chores.length;
     const pct = total ? Math.round((doneCount/total)*100) : 0;
     document.getElementById('progressFill').style.width = pct + '%';
     document.getElementById('progressLabel').textContent = doneCount + '/' + total + ' done';
 
-    // next week preview
     const nextWeek = weekInfo.week + 1;
     const previewEl = document.getElementById('preview');
     if(state.chores.length && state.people.length === 2){
-      const nextIdx = assignedIndexFor(nextWeek, false); // swap only ever applies to the current week
+      const nextIdx = assignedIndexFor(nextWeek, false);
       previewEl.style.display = 'flex';
       previewEl.innerHTML = '<span class="label">Next week (W'+nextWeek+')</span><span class="who">'+escapeHtml(state.people[nextIdx])+'\u2019s turn</span>';
     } else {
@@ -785,7 +758,6 @@
     if(editingSpecId === chore.id){
       const textarea = document.createElement('textarea');
       textarea.className = 'spec-textarea';
-      textarea.id = 'specTextarea';
       textarea.placeholder = 'One task per line, e.g.\nClean the hob\nMop the floor';
       textarea.value = getSpec(chore).join('\n');
 
@@ -806,7 +778,6 @@
       actions.appendChild(cancel);
       panel.appendChild(textarea);
       panel.appendChild(actions);
-      // focus after paint
       setTimeout(() => textarea.focus(), 0);
       return panel;
     }
@@ -898,129 +869,41 @@
     await saveSwap();
   }
 
-  function closeBackupPanel(){
-    const panel = document.getElementById('backupPanel');
-    panel.style.display = 'none';
-    panel.innerHTML = '';
-  }
-
-  function openBackupView(){
-    const panel = document.getElementById('backupPanel');
-    const payload = JSON.stringify({ people: state.people, chores: state.chores, savedAt: new Date().toISOString() }, null, 2);
-    panel.innerHTML = '';
-    panel.style.display = 'block';
-
-    const hint = document.createElement('div');
-    hint.className = 'backup-hint';
-    hint.textContent = 'Tap the box below, select all, and copy — then send that text to sync another device.';
-
-    const ta = document.createElement('textarea');
-    ta.className = 'spec-textarea';
-    ta.readOnly = true;
-    ta.value = payload;
-    ta.onclick = () => { ta.focus(); ta.select(); };
-
-    const actions = document.createElement('div');
-    actions.className = 'spec-edit-actions';
-
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'spec-save copy-btn';
-    copyBtn.textContent = 'Select all';
-    copyBtn.onclick = () => { ta.focus(); ta.setSelectionRange(0, payload.length); };
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'spec-cancel';
-    closeBtn.textContent = 'Close';
-    closeBtn.onclick = closeBackupPanel;
-
-    actions.appendChild(copyBtn);
-    actions.appendChild(closeBtn);
-    panel.appendChild(hint);
-    panel.appendChild(ta);
-    panel.appendChild(actions);
-
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(0, payload.length); }, 50);
-  }
-
-  function openRestoreView(){
-    const panel = document.getElementById('backupPanel');
-    panel.innerHTML = '';
-    panel.style.display = 'block';
-
-    const hint = document.createElement('div');
-    hint.className = 'backup-hint';
-    hint.textContent = 'Paste the backup text you were sent into the box below, then tap Restore.';
-
-    const ta = document.createElement('textarea');
-    ta.className = 'spec-textarea';
-    ta.placeholder = 'Paste backup text here';
-
-    const status = document.createElement('div');
-    status.className = 'backup-hint';
-    status.style.display = 'none';
-
-    const actions = document.createElement('div');
-    actions.className = 'spec-edit-actions';
-
-    const restoreBtn = document.createElement('button');
-    restoreBtn.className = 'spec-save';
-    restoreBtn.textContent = 'Restore';
-    restoreBtn.onclick = () => {
-      const text = ta.value.trim();
-      if(!text){
-        status.style.display = 'block';
-        status.textContent = 'Paste your backup text into the box first.';
-        return;
-      }
-      try{
-        const parsed = JSON.parse(text);
-        if(!Array.isArray(parsed.people) || !Array.isArray(parsed.chores)){
-          status.style.display = 'block';
-          status.textContent = "That doesn't look like a valid backup.";
-          return;
-        }
-        state.people = parsed.people;
-        state.chores = parsed.chores;
-        render();
-        saveConfig();
-        closeBackupPanel();
-      }catch(e){
-        status.style.display = 'block';
-        status.textContent = "Couldn't read that — check you pasted the whole thing.";
-      }
-    };
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'spec-cancel';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.onclick = closeBackupPanel;
-
-    actions.appendChild(restoreBtn);
-    actions.appendChild(cancelBtn);
-    panel.appendChild(hint);
-    panel.appendChild(ta);
-    panel.appendChild(status);
-    panel.appendChild(actions);
-
-    setTimeout(() => ta.focus(), 50);
-  }
-
   async function init(){
     const now = new Date();
     weekInfo = getISOWeek(now);
     weekKey = weekInfo.year + '-W' + weekInfo.week;
-    doneKey = 'rota_done_' + weekKey;
-    swapKey = 'rota_swap_' + weekKey;
+
+    configDocRef = doc(db, 'rota_data', 'config');
+    weekDocRef = doc(db, 'rota_data', weekKey);
 
     await loadConfig();
     await loadWeekData();
     render();
+    setSyncLabel('live — synced across devices');
 
     document.getElementById('addBtn').onclick = addChore;
     document.getElementById('newChore').addEventListener('keydown', (e) => {
       if(e.key === 'Enter') addChore();
     });
     document.getElementById('swapToggle').onclick = toggleSwap;
+
+    onSnapshot(configDocRef, (snap) => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if(Array.isArray(data.people) && Array.isArray(data.chores)){
+        state = { people: data.people, chores: data.chores };
+        render();
+      }
+    }, (err) => { console.error(err); showStorageWarning(); });
+
+    onSnapshot(weekDocRef, (snap) => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      completions = data.completions || {};
+      swapped = !!data.swapped;
+      render();
+    }, (err) => { console.error(err); showStorageWarning(); });
   }
 
   init();
