@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cleaning Rota</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #eef1e8;
+    --paper: #fbfaf4;
+    --ink: #1f2a22;
+    --ink-soft: #5b6b60;
+    --pine: #2f4a3e;
+    --pine-soft: #dfe8e2;
+    --slate: #3f5b78;
+    --slate-soft: #dee6ec;
+    --mustard: #d9a441;
+    --line: rgba(31,42,34,0.12);
+    --radius: 14px;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    padding: 28px 16px 60px;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(31,42,34,0.06) 1px, transparent 0);
+    background-size: 18px 18px;
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    display:flex;
+    justify-content:center;
+  }
+  .app{
+    width:100%;
+    max-width: 460px;
+  }
+  .masthead{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom: 18px;
+  }
+  .masthead h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size: 26px;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .masthead .sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color: var(--ink-soft);
+  }
+
+  /* Rotation dial - signature element */
+  .dial{
+    background: var(--paper);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+    margin-bottom:16px;
+    box-shadow: 0 1px 0 rgba(31,42,34,0.03);
+  }
+  .dial-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .week-num{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 34px;
+    font-weight:500;
+    line-height:1;
+    color: var(--pine);
+  }
+  .week-range{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top:4px;
+  }
+  .chips{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .chip{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px 6px 6px;
+    border-radius: 999px;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    border:1px solid transparent;
+    background:none;
+  }
+  .avatar{
+    width:24px;height:24px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk',sans-serif;
+    font-size:12px; font-weight:700; color:#fff;
+    flex-shrink:0;
+  }
+  .p0 .avatar{ background: var(--pine); }
+  .p1 .avatar{ background: var(--slate); }
+  .p0{ color: var(--pine); }
+  .p1{ color: var(--slate); }
+  .chip:hover{ background: var(--bg); }
+  .chip-active.p0{ background: var(--pine-soft); border-color: var(--pine); }
+  .chip-active.p1{ background: var(--slate-soft); border-color: var(--slate); }
+  .chip-inactive{ opacity: 0.45; }
+
+  .swap-arrow{
+    color: var(--ink-soft);
+    font-size:16px;
+    padding: 0 2px;
+  }
+
+  .progress-row{
+    margin-top:14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .progress-track{
+    flex:1;
+    height:6px;
+    border-radius:4px;
+    background: var(--line);
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    background: var(--mustard);
+    border-radius:4px;
+    transition: width 0.3s ease;
+  }
+  .progress-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--ink-soft);
+    white-space:nowrap;
+  }
+
+  .swap-toggle{
+    margin-top:12px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--ink-soft);
+    background:none;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor:pointer;
+    width:100%;
+    text-align:left;
+  }
+  .swap-toggle:hover{ border-color: var(--ink-soft); }
+  .swap-toggle.active{ color: var(--mustard); border-color: var(--mustard); }
+
+  /* Chore list */
+  .section-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color: var(--ink-soft);
+    margin: 22px 2px 8px;
+  }
+  .chore-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .chore-card{
+    background: var(--paper);
+    border:1px solid var(--line);
+    border-radius: 12px;
+    overflow:hidden;
+  }
+  .chore{
+    padding: 10px 12px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    transition: opacity 0.2s ease;
+  }
+  .chore.done{ opacity: 0.5; }
+  .chore .avatar{ width:28px; height:28px; font-size:13px; }
+  .chore-name{
+    flex:1;
+    font-size:14.5px;
+    font-weight:500;
+    cursor:pointer;
+  }
+  .chore.done .chore-name{
+    text-decoration: line-through;
+    text-decoration-color: var(--ink-soft);
+  }
+  .expand-btn{
+    background:none;border:none;cursor:pointer;
+    color: var(--ink-soft);
+    font-size:11px;
+    flex-shrink:0;
+    padding:2px 4px;
+    transition: transform 0.15s ease;
+  }
+  .expand-btn.open{ transform: rotate(90deg); }
+  .check{
+    width:22px;height:22px;
+    border-radius:50%;
+    border:1.5px solid var(--line);
+    background:none;
+    cursor:pointer;
+    flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    color: transparent;
+    font-size:13px;
+  }
+  .check.checked{
+    background: var(--pine);
+    border-color: var(--pine);
+    color:#fff;
+  }
+  .del{
+    background:none;border:none;cursor:pointer;
+    color: var(--ink-soft);
+    font-size:16px;
+    padding:0 2px;
+    line-height:1;
+    flex-shrink:0;
+  }
+  .del:hover{ color: #a94442; }
+
+  .spec-panel{
+    padding: 2px 16px 14px 44px;
+    border-top: 1px solid var(--line);
+    margin-top: -1px;
+  }
+  .spec-list{
+    list-style:none;
+    margin: 10px 0 8px;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .spec-list li{
+    font-size:13px;
+    color: var(--ink-soft);
+    display:flex;
+    align-items:flex-start;
+    gap:7px;
+    line-height:1.4;
+  }
+  .spec-list li::before{
+    content:'';
+    width:5px;height:5px;
+    border-radius:50%;
+    background: var(--mustard);
+    margin-top:6px;
+    flex-shrink:0;
+  }
+  .spec-empty{
+    font-size:12.5px;
+    color: var(--ink-soft);
+    font-style:italic;
+    margin: 10px 0 6px;
+  }
+  .spec-edit-link{
+    background:none;border:none;cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--pine);
+    padding:2px 0;
+    text-decoration: underline;
+    text-underline-offset:2px;
+  }
+  .spec-textarea{
+    width:100%;
+    min-height:100px;
+    font-family:'Inter', sans-serif;
+    font-size:13px;
+    padding:10px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    resize:vertical;
+    margin-top:8px;
+  }
+  .spec-edit-actions{
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+  }
+  .spec-edit-actions button{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:12.5px;
+    padding:6px 12px;
+    border-radius:8px;
+    border:none;
+    cursor:pointer;
+  }
+  .spec-save{ background: var(--pine); color:#fff; }
+  .spec-cancel{ background:none; color: var(--ink-soft); border:1px solid var(--line) !important; }
+
+  .add-row{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  .add-row input{
+    flex:1;
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .add-row input:focus{ outline:2px solid var(--pine); outline-offset:1px; }
+  .add-row button{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    padding: 0 16px;
+    border-radius:10px;
+    border:none;
+    background: var(--pine);
+    color:#fff;
+    cursor:pointer;
+  }
+  .add-row button:hover{ background:#243d33; }
+
+  /* Next week preview */
+  .preview{
+    margin-top: 22px;
+    border:1px dashed var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .preview .label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--ink-soft);
+  }
+  .preview .who{
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .footer-note{
+    margin-top:22px;
+    font-size:12px;
+    color: var(--ink-soft);
+    line-height:1.5;
+    text-align:center;
+  }
+
+  .backup-row{
+    margin-top:20px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+  }
+  .backup-sep{ color: var(--line); font-size:12px; }
+  .backup-link{
+    background:none;border:none;cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--ink-soft);
+    text-decoration:underline;
+    text-underline-offset:2px;
+    padding:4px;
+  }
+  .backup-link:hover{ color: var(--pine); }
+
+  .storage-warning{
+    background: #fbeee0;
+    border: 1px solid #e0b979;
+    color: #6b4a1e;
+    font-size:12px;
+    line-height:1.5;
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+
+  .backup-panel{
+    margin-top:12px;
+    background: var(--paper);
+    border:1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .backup-hint{
+    font-size:12.5px;
+    color: var(--ink-soft);
+    margin-bottom:8px;
+    line-height:1.4;
+  }
+  .backup-panel .spec-textarea{
+    min-height:120px;
+    margin-top:0;
+  }
+  .backup-panel .spec-edit-actions{
+    margin-top:10px;
+  }
+  .copy-btn{
+    background: var(--pine);
+    color:#fff;
+  }
+
+  .empty{
+    font-size:13px;
+    color: var(--ink-soft);
+    text-align:center;
+    padding: 18px 0;
+  }
+
+  @media (max-width:380px){
+    .week-num{ font-size:28px; }
+    .chip span.name{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="masthead">
+    <h1>Cleaning Rota</h1>
+    <div class="sub" id="todayLabel"></div>
+  </div>
+
+  <div class="dial">
+    <div class="dial-top">
+      <div>
+        <div class="week-num" id="weekNum">--</div>
+        <div class="week-range" id="weekRange">loading…</div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="progress-row">
+      <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      <div class="progress-label" id="progressLabel">0/0 done</div>
+    </div>
+    <button class="swap-toggle" id="swapToggle">↻ swap assignments for this week only</button>
+  </div>
+
+  <div class="section-label">This week's chores</div>
+  <div class="chore-list" id="choreList"></div>
+  <div id="emptyState" class="empty" style="display:none;">No chores yet — add your first one below.</div>
+
+  <div class="add-row">
+    <input type="text" id="newChore" placeholder="Add a chore, e.g. Hoover the stairs" maxlength="60" />
+    <button id="addBtn">Add</button>
+  </div>
+
+  <div class="preview" id="preview"></div>
+
+  <div class="backup-row">
+    <button class="backup-link" id="backupBtn">Copy backup</button>
+    <span class="backup-sep">·</span>
+    <button class="backup-link" id="restoreBtn">Restore from backup</button>
+  </div>
+  <div class="backup-panel" id="backupPanel" style="display:none;"></div>
+
+  <div class="footer-note">
+    Tasks rotate automatically each week — nobody has to remember whose turn it is.<br>
+    This copy saves changes on this device only. Send the file itself to your housemate so they have their own copy, and use the backup buttons below to sync any edits between you.
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const CONFIG_KEY = 'rota_config';
+  const DEFAULT_CHORES = [
+    'Kitchen weekly clean',
+    'Bathroom clean',
+    'Hoovering & floors',
+    'Bins & recycling',
+    'Living room tidy',
+    'Bedding & laundry'
+  ];
+
+  // Fallback specs shown for recognised chore names when no custom spec has been saved.
+  // Keyed by lowercase, trimmed chore name.
+  const DEFAULT_SPECS = {
+    'kitchen weekly clean': [
+      'Wash up / empty the dishwasher',
+      'Wipe down all worktops',
+      'Clean the hob and splashback',
+      'Wipe outside of fridge, oven & microwave',
+      'Take out bins & recycling',
+      'Mop the floor',
+      'Wipe down table & chairs'
+    ],
+    'kitchen & dishes': [
+      'Wash up / empty the dishwasher',
+      'Wipe down all worktops',
+      'Take out bins & recycling'
+    ],
+    'bathroom clean': [
+      'Clean toilet (bowl, seat & base)',
+      'Wipe down sink & taps',
+      'Clean shower/bath and screen',
+      'Wipe mirror and surfaces',
+      'Mop the floor',
+      'Empty bin & replace bag',
+      'Top up loo roll & soap'
+    ],
+    'hoovering & floors': [
+      'Hoover all carpets & rugs',
+      'Sweep/mop hard floors',
+      'Get into corners and under sofa/bed edges'
+    ],
+    'bins & recycling': [
+      'Take bins out (check collection day)',
+      'Replace bin bags',
+      'Sort recycling'
+    ],
+    'living room tidy': [
+      'Clear surfaces & put things away',
+      'Plump cushions, fold throws',
+      'Quick dust of shelves/TV unit'
+    ],
+    'bedding & laundry': [
+      'Change and wash bedsheets',
+      'Put on a laundry load',
+      'Fold & put away clean clothes'
+    ]
+  };
+
+  function normalizeName(name){
+    return (name || '').trim().toLowerCase();
+  }
+
+  function getSpec(chore){
+    if(chore.spec && chore.spec.length) return chore.spec;
+    return DEFAULT_SPECS[normalizeName(chore.name)] || [];
+  }
+
+  let state = {
+    people: ['Seán', 'Danny'],
+    chores: [] // {id, name, spec?: string[]}
+  };
+  let weekInfo = null;
+  let weekKey = '';
+  let swapKey = '';
+  let doneKey = '';
+  let completions = {};
+  let swapped = false;
+  const expandedIds = new Set();
+  let editingSpecId = null;
+
+  function uid(){
+    return Math.random().toString(36).slice(2,9);
+  }
+
+  function getISOWeek(date){
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - dayNum + 3);
+    const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    const fDayNum = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - fDayNum + 3);
+    const week = 1 + Math.round((d - firstThursday) / (7*86400000));
+    return { year: d.getUTCFullYear(), week: week };
+  }
+
+  function getWeekRange(date){
+    const day = (date.getDay() + 6) % 7; // 0 = Monday
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - day);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const opts = { day:'numeric', month:'short' };
+    return monday.toLocaleDateString('en-GB', opts) + ' – ' + sunday.toLocaleDateString('en-GB', opts);
+  }
+
+  function initials(name){
+    return (name || '?').trim().split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  }
+
+  // --- Storage: this file runs as a standalone page (opened directly in the
+  // browser rather than through Claude's hosted artifact viewer), so it uses
+  // the browser's own localStorage instead of Claude's window.storage API.
+  // That means data lives on THIS device/browser only — use Copy Backup /
+  // Restore from backup to bring another device's copy up to date.
+  let storageBlocked = false;
+
+  function storageGet(key){
+    try{ return localStorage.getItem(key); }
+    catch(e){ storageBlocked = true; return null; }
+  }
+
+  function storageSet(key, value){
+    try{ localStorage.setItem(key, value); return true; }
+    catch(e){ storageBlocked = true; return false; }
+  }
+
+  function showStorageWarning(){
+    if(document.getElementById('storageWarning')) return;
+    const banner = document.createElement('div');
+    banner.id = 'storageWarning';
+    banner.className = 'storage-warning';
+    banner.textContent = "This browser is blocking local storage, so changes won't be saved when you close this tab. Use Copy backup after making changes, and Restore from backup next time you open it.";
+    document.querySelector('.app').insertBefore(banner, document.querySelector('.dial'));
+  }
+
+  async function loadConfig(){
+    const raw = storageGet(CONFIG_KEY);
+    if(raw){
+      try{
+        const parsed = JSON.parse(raw);
+        if(parsed.people && parsed.chores){
+          state = parsed;
+          return;
+        }
+      }catch(e){ /* fall through to defaults */ }
+    }
+    // first run on this browser: seed defaults
+    state.chores = DEFAULT_CHORES.map(name => ({ id: uid(), name }));
+    await saveConfig();
+  }
+
+  async function saveConfig(){
+    const ok = storageSet(CONFIG_KEY, JSON.stringify(state));
+    if(!ok) showStorageWarning();
+  }
+
+  async function loadWeekData(){
+    const raw = storageGet(doneKey);
+    try{ completions = raw ? JSON.parse(raw) : {}; }
+    catch(e){ completions = {}; }
+    const rawSwap = storageGet(swapKey);
+    try{ swapped = rawSwap ? JSON.parse(rawSwap) === true : false; }
+    catch(e){ swapped = false; }
+  }
+
+  async function saveCompletions(){
+    const ok = storageSet(doneKey, JSON.stringify(completions));
+    if(!ok) showStorageWarning();
+  }
+
+  async function saveSwap(){
+    const ok = storageSet(swapKey, JSON.stringify(swapped));
+    if(!ok) showStorageWarning();
+  }
+
+  function assignedIndexFor(week, isSwapped){
+    let base = week % 2;
+    if(isSwapped) base = 1 - base;
+    return base;
+  }
+
+  function render(){
+    // header
+    const now = new Date();
+    document.getElementById('todayLabel').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+    document.getElementById('weekNum').textContent = 'W' + weekInfo.week;
+    document.getElementById('weekRange').textContent = getWeekRange(now);
+
+    // chips
+    const onDutyIdx = assignedIndexFor(weekInfo.week, swapped);
+    const chips = document.getElementById('chips');
+    chips.innerHTML = '';
+    state.people.forEach((name, i) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip p' + i + (i === onDutyIdx ? ' chip-active' : ' chip-inactive');
+      chip.innerHTML = '<span class="avatar">'+initials(name)+'</span><span class="name">'+escapeHtml(name)+'</span>';
+      chip.title = 'Click to rename';
+      chip.onclick = () => renamePerson(i);
+      chips.appendChild(chip);
+      if(i === 0){
+        const arrow = document.createElement('span');
+        arrow.className = 'swap-arrow';
+        arrow.textContent = '⇄';
+        chips.appendChild(arrow);
+      }
+    });
+
+    // swap toggle
+    const swapBtn = document.getElementById('swapToggle');
+    swapBtn.textContent = swapped ? '↻ swapped for this week — click to undo' : '↻ swap assignments for this week only';
+    swapBtn.className = 'swap-toggle' + (swapped ? ' active' : '');
+
+    // chore list
+    const list = document.getElementById('choreList');
+    list.innerHTML = '';
+    document.getElementById('emptyState').style.display = state.chores.length ? 'none' : 'block';
+
+    let doneCount = 0;
+    state.chores.forEach((chore, idx) => {
+      const personIdx = onDutyIdx;
+      const person = state.people[personIdx];
+      const isDone = !!completions[chore.id];
+      if(isDone) doneCount++;
+
+      const card = document.createElement('div');
+      card.className = 'chore-card';
+
+      const row = document.createElement('div');
+      row.className = 'chore' + (isDone ? ' done' : '');
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar p' + personIdx + '-avatar';
+      avatar.style.background = personIdx === 0 ? 'var(--pine)' : 'var(--slate)';
+      avatar.textContent = initials(person);
+      avatar.title = person;
+
+      const isOpen = expandedIds.has(chore.id);
+      const expandBtn = document.createElement('button');
+      expandBtn.className = 'expand-btn' + (isOpen ? ' open' : '');
+      expandBtn.innerHTML = '▸';
+      expandBtn.title = 'Show what this involves';
+      expandBtn.onclick = () => toggleExpand(chore.id);
+
+      const name = document.createElement('div');
+      name.className = 'chore-name';
+      name.textContent = chore.name;
+      name.onclick = () => toggleExpand(chore.id);
+
+      const check = document.createElement('button');
+      check.className = 'check' + (isDone ? ' checked' : '');
+      check.innerHTML = isDone ? '✓' : '';
+      check.onclick = () => toggleDone(chore.id);
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.innerHTML = '×';
+      del.title = 'Remove chore';
+      del.onclick = () => removeChore(chore.id);
+
+      row.appendChild(expandBtn);
+      row.appendChild(avatar);
+      row.appendChild(name);
+      row.appendChild(check);
+      row.appendChild(del);
+      card.appendChild(row);
+
+      if(isOpen){
+        card.appendChild(buildSpecPanel(chore));
+      }
+
+      list.appendChild(card);
+    });
+
+    // progress
+    const total = state.chores.length;
+    const pct = total ? Math.round((doneCount/total)*100) : 0;
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = doneCount + '/' + total + ' done';
+
+    // next week preview
+    const nextWeek = weekInfo.week + 1;
+    const previewEl = document.getElementById('preview');
+    if(state.chores.length && state.people.length === 2){
+      const nextIdx = assignedIndexFor(nextWeek, false); // swap only ever applies to the current week
+      previewEl.style.display = 'flex';
+      previewEl.innerHTML = '<span class="label">Next week (W'+nextWeek+')</span><span class="who">'+escapeHtml(state.people[nextIdx])+'\u2019s turn</span>';
+    } else {
+      previewEl.style.display = 'none';
+    }
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function buildSpecPanel(chore){
+    const panel = document.createElement('div');
+    panel.className = 'spec-panel';
+
+    if(editingSpecId === chore.id){
+      const textarea = document.createElement('textarea');
+      textarea.className = 'spec-textarea';
+      textarea.id = 'specTextarea';
+      textarea.placeholder = 'One task per line, e.g.\nClean the hob\nMop the floor';
+      textarea.value = getSpec(chore).join('\n');
+
+      const actions = document.createElement('div');
+      actions.className = 'spec-edit-actions';
+
+      const save = document.createElement('button');
+      save.className = 'spec-save';
+      save.textContent = 'Save';
+      save.onclick = () => saveSpecEdit(chore.id, textarea.value);
+
+      const cancel = document.createElement('button');
+      cancel.className = 'spec-cancel';
+      cancel.textContent = 'Cancel';
+      cancel.onclick = () => { editingSpecId = null; render(); };
+
+      actions.appendChild(save);
+      actions.appendChild(cancel);
+      panel.appendChild(textarea);
+      panel.appendChild(actions);
+      // focus after paint
+      setTimeout(() => textarea.focus(), 0);
+      return panel;
+    }
+
+    const spec = getSpec(chore);
+    if(spec.length){
+      const ul = document.createElement('ul');
+      ul.className = 'spec-list';
+      spec.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        ul.appendChild(li);
+      });
+      panel.appendChild(ul);
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'spec-empty';
+      empty.textContent = 'No details added yet.';
+      panel.appendChild(empty);
+    }
+
+    const editLink = document.createElement('button');
+    editLink.className = 'spec-edit-link';
+    editLink.textContent = spec.length ? 'Edit details' : '+ Add details';
+    editLink.onclick = () => { editingSpecId = chore.id; render(); };
+    panel.appendChild(editLink);
+
+    return panel;
+  }
+
+  function toggleExpand(id){
+    if(expandedIds.has(id)){
+      expandedIds.delete(id);
+      if(editingSpecId === id) editingSpecId = null;
+    } else {
+      expandedIds.add(id);
+    }
+    render();
+  }
+
+  async function saveSpecEdit(id, text){
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const chore = state.chores.find(c => c.id === id);
+    if(chore){
+      chore.spec = lines;
+      await saveConfig();
+    }
+    editingSpecId = null;
+    render();
+  }
+
+  async function toggleDone(id){
+    completions[id] = !completions[id];
+    render();
+    await saveCompletions();
+  }
+
+  async function removeChore(id){
+    state.chores = state.chores.filter(c => c.id !== id);
+    delete completions[id];
+    render();
+    await saveConfig();
+    await saveCompletions();
+  }
+
+  async function addChore(){
+    const input = document.getElementById('newChore');
+    const val = input.value.trim();
+    if(!val) return;
+    state.chores.push({ id: uid(), name: val });
+    input.value = '';
+    render();
+    await saveConfig();
+  }
+
+  async function renamePerson(idx){
+    const current = state.people[idx];
+    const next = prompt('Name for this person:', current);
+    if(next && next.trim()){
+      state.people[idx] = next.trim().slice(0, 24);
+      render();
+      await saveConfig();
+    }
+  }
+
+  async function toggleSwap(){
+    swapped = !swapped;
+    render();
+    await saveSwap();
+  }
+
+  function closeBackupPanel(){
+    const panel = document.getElementById('backupPanel');
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+  }
+
+  function openBackupView(){
+    const panel = document.getElementById('backupPanel');
+    const payload = JSON.stringify({ people: state.people, chores: state.chores, savedAt: new Date().toISOString() }, null, 2);
+    panel.innerHTML = '';
+    panel.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'backup-hint';
+    hint.textContent = 'Tap the box below, select all, and copy — then send that text to sync another device.';
+
+    const ta = document.createElement('textarea');
+    ta.className = 'spec-textarea';
+    ta.readOnly = true;
+    ta.value = payload;
+    ta.onclick = () => { ta.focus(); ta.select(); };
+
+    const actions = document.createElement('div');
+    actions.className = 'spec-edit-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'spec-save copy-btn';
+    copyBtn.textContent = 'Select all';
+    copyBtn.onclick = () => { ta.focus(); ta.setSelectionRange(0, payload.length); };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'spec-cancel';
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = closeBackupPanel;
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(closeBtn);
+    panel.appendChild(hint);
+    panel.appendChild(ta);
+    panel.appendChild(actions);
+
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(0, payload.length); }, 50);
+  }
+
+  function openRestoreView(){
+    const panel = document.getElementById('backupPanel');
+    panel.innerHTML = '';
+    panel.style.display = 'block';
+
+    const hint = document.createElement('div');
+    hint.className = 'backup-hint';
+    hint.textContent = 'Paste the backup text you were sent into the box below, then tap Restore.';
+
+    const ta = document.createElement('textarea');
+    ta.className = 'spec-textarea';
+    ta.placeholder = 'Paste backup text here';
+
+    const status = document.createElement('div');
+    status.className = 'backup-hint';
+    status.style.display = 'none';
+
+    const actions = document.createElement('div');
+    actions.className = 'spec-edit-actions';
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'spec-save';
+    restoreBtn.textContent = 'Restore';
+    restoreBtn.onclick = () => {
+      const text = ta.value.trim();
+      if(!text){
+        status.style.display = 'block';
+        status.textContent = 'Paste your backup text into the box first.';
+        return;
+      }
+      try{
+        const parsed = JSON.parse(text);
+        if(!Array.isArray(parsed.people) || !Array.isArray(parsed.chores)){
+          status.style.display = 'block';
+          status.textContent = "That doesn't look like a valid backup.";
+          return;
+        }
+        state.people = parsed.people;
+        state.chores = parsed.chores;
+        render();
+        saveConfig();
+        closeBackupPanel();
+      }catch(e){
+        status.style.display = 'block';
+        status.textContent = "Couldn't read that — check you pasted the whole thing.";
+      }
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'spec-cancel';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = closeBackupPanel;
+
+    actions.appendChild(restoreBtn);
+    actions.appendChild(cancelBtn);
+    panel.appendChild(hint);
+    panel.appendChild(ta);
+    panel.appendChild(status);
+    panel.appendChild(actions);
+
+    setTimeout(() => ta.focus(), 50);
+  }
+
+  async function init(){
+    const now = new Date();
+    weekInfo = getISOWeek(now);
+    weekKey = weekInfo.year + '-W' + weekInfo.week;
+    doneKey = 'rota_done_' + weekKey;
+    swapKey = 'rota_swap_' + weekKey;
+
+    await loadConfig();
+    await loadWeekData();
+    render();
+
+    document.getElementById('addBtn').onclick = addChore;
+    document.getElementById('newChore').addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') addChore();
+    });
+    document.getElementById('swapToggle').onclick = toggleSwap;
+    document.getElementById('backupBtn').onclick = openBackupView;
+    document.getElementById('restoreBtn').onclick = openRestoreView;
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
