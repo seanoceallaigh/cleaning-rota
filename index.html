@@ -405,14 +405,89 @@
     .week-num{ font-size:28px; }
     .chip span.name{ display:none; }
   }
+
+  .login-screen{
+    min-height: 60vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .login-card{
+    background: var(--paper);
+    border:1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+    width:100%;
+    max-width: 320px;
+    text-align:center;
+  }
+  .login-card h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:20px;
+    margin: 0 0 18px;
+  }
+  .login-card input{
+    width:100%;
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    margin-bottom:10px;
+  }
+  .login-card input:focus{ outline:2px solid var(--pine); outline-offset:1px; }
+  .login-card button{
+    width:100%;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    padding: 10px 16px;
+    border-radius:10px;
+    border:none;
+    background: var(--pine);
+    color:#fff;
+    cursor:pointer;
+    margin-top:4px;
+  }
+  .login-card button:hover{ background:#243d33; }
+  .login-error{
+    color:#a94442;
+    font-size:12.5px;
+    margin-top:10px;
+  }
+  .signout-btn{
+    background:none;border:none;cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color: var(--ink-soft);
+    text-decoration:underline;
+    text-underline-offset:2px;
+    padding:0;
+  }
 </style>
 </head>
 <body>
-<div class="app">
+
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <h2>Cleaning Rota</h2>
+    <input type="email" id="loginEmail" placeholder="Email" autocomplete="username" />
+    <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
+    <button id="loginBtn">Sign in</button>
+    <div id="loginError" class="login-error" style="display:none;"></div>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
 
   <div class="masthead">
-    <h1>Cleaning Rota</h1>
-    <div class="sub" id="todayLabel"></div>
+    <div>
+      <h1>Cleaning Rota</h1>
+      <div class="sub" id="todayLabel"></div>
+    </div>
+    <button class="signout-btn" id="signOutBtn">Sign out</button>
   </div>
 
   <div class="dial">
@@ -461,6 +536,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCmxsG_OkIu09nWpAfBQmbZWHh4ZedPMvw",
@@ -473,6 +549,7 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+const auth = getAuth(fbApp);
 
 (function(){
   const DEFAULT_CHORES = [
@@ -1044,7 +1121,55 @@ const db = getFirestore(fbApp);
     }, (err) => { console.error(err); showStorageWarning(); });
   }
 
-  init();
+  let appStarted = false;
+
+  function wireAuthUI(){
+    const loginBtn = document.getElementById('loginBtn');
+    const emailEl = document.getElementById('loginEmail');
+    const pwEl = document.getElementById('loginPassword');
+    const errEl = document.getElementById('loginError');
+    const signOutBtn = document.getElementById('signOutBtn');
+
+    async function attemptLogin(){
+      errEl.style.display = 'none';
+      const email = emailEl.value.trim();
+      const pw = pwEl.value;
+      if(!email || !pw){
+        errEl.textContent = 'Enter your email and password.';
+        errEl.style.display = 'block';
+        return;
+      }
+      try{
+        await signInWithEmailAndPassword(auth, email, pw);
+        pwEl.value = '';
+      }catch(e){
+        errEl.textContent = 'Could not sign in — check your email and password.';
+        errEl.style.display = 'block';
+      }
+    }
+
+    loginBtn.onclick = attemptLogin;
+    pwEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptLogin(); });
+    signOutBtn.onclick = () => signOut(auth);
+  }
+
+  wireAuthUI();
+
+  onAuthStateChanged(auth, (user) => {
+    const loginScreen = document.getElementById('loginScreen');
+    const appRoot = document.getElementById('appRoot');
+    if(user){
+      loginScreen.style.display = 'none';
+      appRoot.style.display = 'block';
+      if(!appStarted){
+        appStarted = true;
+        init();
+      }
+    } else {
+      loginScreen.style.display = 'flex';
+      appRoot.style.display = 'none';
+    }
+  });
 })();
 </script>
 </body>
