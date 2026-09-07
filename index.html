@@ -442,11 +442,18 @@
 
   <div class="preview" id="preview"></div>
 
-  <div class="footer-note">
-    Tasks rotate automatically each week so we don't have to remember whose turn it is.<br>
-    Changes sync automatically between devices.
+  <div class="section-label" style="margin-top:32px;">Shared shopping list</div>
+  <div class="chore-list" id="shopList"></div>
+  <div id="shopEmptyState" class="empty" style="display:none;">Nothing on the list — add something below.</div>
 
-    Seán and Danny's weekly cleaning rota to keep on top of things fairly
+  <div class="add-row">
+    <input type="text" id="newShopItem" placeholder="Add an item, e.g. Washing up liquid" maxlength="60" />
+    <button id="addShopBtn">Add</button>
+  </div>
+
+  <div class="footer-note">
+    Tasks rotate automatically each week — nobody has to remember whose turn it is.<br>
+    Changes sync automatically between devices — nothing to send or copy between you and your housemate.
   </div>
 
 </div>
@@ -533,7 +540,7 @@ const db = getFirestore(fbApp);
   }
 
   let state = {
-    people: ['Seán', 'Danny'],
+    people: ['Seán', 'Dievydas'],
     chores: []
   };
   let weekInfo = null;
@@ -544,6 +551,9 @@ const db = getFirestore(fbApp);
   let editingSpecId = null;
   let configDocRef = null;
   let weekDocRef = null;
+
+  let shopItems = [];
+  let shopDocRef = null;
 
   function uid(){
     return Math.random().toString(36).slice(2,9);
@@ -871,6 +881,117 @@ const db = getFirestore(fbApp);
     await saveSwap();
   }
 
+  // --- Shared shopping list ---
+
+  function renderShop(){
+    const list = document.getElementById('shopList');
+    list.innerHTML = '';
+    document.getElementById('shopEmptyState').style.display = shopItems.length ? 'none' : 'block';
+
+    const needed = shopItems.filter(i => !i.bought);
+    const bought = shopItems.filter(i => i.bought);
+
+    needed.forEach(item => list.appendChild(buildShopRow(item)));
+
+    if(bought.length){
+      const boughtLabel = document.createElement('div');
+      boughtLabel.className = 'section-label';
+      boughtLabel.style.margin = '14px 2px 8px';
+      boughtLabel.textContent = 'Bought';
+      list.appendChild(boughtLabel);
+
+      bought.forEach(item => list.appendChild(buildShopRow(item)));
+
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'spec-edit-link';
+      clearBtn.style.marginTop = '8px';
+      clearBtn.textContent = 'Clear bought items';
+      clearBtn.onclick = clearBought;
+      list.appendChild(clearBtn);
+    }
+  }
+
+  function buildShopRow(item){
+    const card = document.createElement('div');
+    card.className = 'chore-card';
+
+    const row = document.createElement('div');
+    row.className = 'chore' + (item.bought ? ' done' : '');
+
+    const check = document.createElement('button');
+    check.className = 'check' + (item.bought ? ' checked' : '');
+    check.innerHTML = item.bought ? '✓' : '';
+    check.onclick = () => toggleShopBought(item.id);
+
+    const name = document.createElement('div');
+    name.className = 'chore-name';
+    name.textContent = item.name;
+    name.onclick = () => toggleShopBought(item.id);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.innerHTML = '×';
+    del.title = 'Remove item';
+    del.onclick = () => removeShopItem(item.id);
+
+    row.appendChild(check);
+    row.appendChild(name);
+    row.appendChild(del);
+    card.appendChild(row);
+    return card;
+  }
+
+  async function loadShopping(){
+    try{
+      const snap = await getDoc(shopDocRef);
+      if(snap.exists()){
+        const data = snap.data();
+        shopItems = Array.isArray(data.items) ? data.items : [];
+      } else {
+        shopItems = [];
+      }
+    }catch(e){
+      console.error(e);
+      shopItems = [];
+      showStorageWarning();
+    }
+  }
+
+  async function saveShopping(){
+    try{
+      await setDoc(shopDocRef, { items: shopItems });
+    }catch(e){ console.error(e); showStorageWarning(); }
+  }
+
+  async function addShopItem(){
+    const input = document.getElementById('newShopItem');
+    const val = input.value.trim();
+    if(!val) return;
+    shopItems.push({ id: uid(), name: val, bought: false });
+    input.value = '';
+    renderShop();
+    await saveShopping();
+  }
+
+  async function toggleShopBought(id){
+    const item = shopItems.find(i => i.id === id);
+    if(item) item.bought = !item.bought;
+    renderShop();
+    await saveShopping();
+  }
+
+  async function removeShopItem(id){
+    shopItems = shopItems.filter(i => i.id !== id);
+    renderShop();
+    await saveShopping();
+  }
+
+  async function clearBought(){
+    shopItems = shopItems.filter(i => !i.bought);
+    renderShop();
+    await saveShopping();
+  }
+
   async function init(){
     const now = new Date();
     weekInfo = getISOWeek(now);
@@ -878,10 +999,13 @@ const db = getFirestore(fbApp);
 
     configDocRef = doc(db, 'rota_data', 'config');
     weekDocRef = doc(db, 'rota_data', weekKey);
+    shopDocRef = doc(db, 'rota_data', 'shopping');
 
     await loadConfig();
     await loadWeekData();
+    await loadShopping();
     render();
+    renderShop();
     setSyncLabel('live — synced across devices');
 
     document.getElementById('addBtn').onclick = addChore;
@@ -889,6 +1013,11 @@ const db = getFirestore(fbApp);
       if(e.key === 'Enter') addChore();
     });
     document.getElementById('swapToggle').onclick = toggleSwap;
+
+    document.getElementById('addShopBtn').onclick = addShopItem;
+    document.getElementById('newShopItem').addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') addShopItem();
+    });
 
     onSnapshot(configDocRef, (snap) => {
       if(!snap.exists()) return;
@@ -905,6 +1034,13 @@ const db = getFirestore(fbApp);
       completions = data.completions || {};
       swapped = !!data.swapped;
       render();
+    }, (err) => { console.error(err); showStorageWarning(); });
+
+    onSnapshot(shopDocRef, (snap) => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      shopItems = Array.isArray(data.items) ? data.items : [];
+      renderShop();
     }, (err) => { console.error(err); showStorageWarning(); });
   }
 
