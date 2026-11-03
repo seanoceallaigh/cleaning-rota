@@ -452,6 +452,25 @@
     margin-top:4px;
   }
   .login-card button:hover{ background:#243d33; }
+  .login-card .link-btn{
+    display:block;
+    width:auto;
+    margin: 14px auto 0;
+    padding:0;
+    background:none;
+    color: var(--ink-soft);
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:500;
+    font-size:11px;
+    text-decoration:underline;
+    text-underline-offset:2px;
+  }
+  .login-card .link-btn:hover{ background:none; color: var(--ink); }
+  .login-hint{
+    font-size:13px;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+  }
   .login-error{
     color:#a94442;
     font-size:12.5px;
@@ -473,9 +492,19 @@
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <h2>Cleaning Rota</h2>
-    <input type="email" id="loginEmail" placeholder="Email" autocomplete="username" />
-    <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
-    <button id="loginBtn">Sign in</button>
+    <div id="authForm">
+      <input type="email" id="loginEmail" placeholder="Email" autocomplete="username" />
+      <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
+      <input type="text" id="signupCode" placeholder="House code" autocomplete="off" autocapitalize="none" style="display:none;" />
+      <button id="loginBtn">Sign in</button>
+      <button class="link-btn" id="modeToggle">New housemate? Create an account</button>
+    </div>
+    <div id="codeForm" style="display:none;">
+      <p class="login-hint">Enter the house code to join the rota.</p>
+      <input type="text" id="joinCode" placeholder="House code" autocomplete="off" autocapitalize="none" />
+      <button id="joinBtn">Join</button>
+      <button class="link-btn" id="codeSignOut">Sign out</button>
+    </div>
     <div id="loginError" class="login-error" style="display:none;"></div>
   </div>
 </div>
@@ -536,7 +565,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, deleteField } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCmxsG_OkIu09nWpAfBQmbZWHh4ZedPMvw",
@@ -1175,55 +1204,178 @@ const auth = getAuth(fbApp);
     });
   }
 
+  // --- Sign in, sign up and house code ---
+  // Anyone can create an account, but only accounts with a members/{uid} doc can
+  // reach the rota. The Firestore rules only allow creating that doc with the
+  // right house code, and the code lives in the rules, not in this file.
+
   let appStarted = false;
+  let signupMode = false;
+  let pendingCode = null;
+
+  function normalizeCode(code){
+    return (code || '').trim().toLowerCase();
+  }
+
+  function showError(text){
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = text;
+    errEl.style.display = text ? 'block' : 'none';
+  }
+
+  function showScreen(which){
+    document.getElementById('loginScreen').style.display = which === 'app' ? 'none' : 'flex';
+    document.getElementById('appRoot').style.display = which === 'app' ? 'block' : 'none';
+    document.getElementById('authForm').style.display = which === 'login' ? 'block' : 'none';
+    document.getElementById('codeForm').style.display = which === 'code' ? 'block' : 'none';
+  }
+
+  function startApp(){
+    showError('');
+    showScreen('app');
+    if(!appStarted){
+      appStarted = true;
+      init();
+    }
+  }
+
+  async function isMember(user){
+    const snap = await getDoc(doc(db, 'members', user.uid));
+    return snap.exists();
+  }
+
+  // Resolves true if the code was accepted, false if the rules rejected it.
+  async function joinHouse(user, code){
+    try{
+      await setDoc(doc(db, 'members', user.uid), { code: normalizeCode(code) });
+      return true;
+    }catch(e){
+      console.error(e);
+      return false;
+    }
+  }
+
+  function signupErrorMessage(e){
+    switch(e && e.code){
+      case 'auth/email-already-in-use': return 'There’s already an account with that email — sign in instead.';
+      case 'auth/weak-password': return 'Password needs at least 6 characters.';
+      case 'auth/invalid-email': return 'That email address doesn’t look right.';
+      case 'auth/operation-not-allowed':
+      case 'auth/admin-restricted-operation': return 'Creating accounts is turned off for this rota.';
+      default: return 'Could not create the account — please try again.';
+    }
+  }
 
   function wireAuthUI(){
     const loginBtn = document.getElementById('loginBtn');
     const emailEl = document.getElementById('loginEmail');
     const pwEl = document.getElementById('loginPassword');
-    const errEl = document.getElementById('loginError');
+    const signupCodeEl = document.getElementById('signupCode');
+    const modeToggle = document.getElementById('modeToggle');
+    const joinCodeEl = document.getElementById('joinCode');
     const signOutBtn = document.getElementById('signOutBtn');
 
+    function setMode(isSignup){
+      signupMode = isSignup;
+      showError('');
+      signupCodeEl.style.display = isSignup ? 'block' : 'none';
+      pwEl.autocomplete = isSignup ? 'new-password' : 'current-password';
+      loginBtn.textContent = isSignup ? 'Create account' : 'Sign in';
+      modeToggle.textContent = isSignup ? 'Already have an account? Sign in' : 'New housemate? Create an account';
+    }
+
     async function attemptLogin(){
-      errEl.style.display = 'none';
+      showError('');
       const email = emailEl.value.trim();
       const pw = pwEl.value;
       if(!email || !pw){
-        errEl.textContent = 'Enter your email and password.';
-        errEl.style.display = 'block';
+        showError('Enter your email and password.');
         return;
       }
+      if(!signupMode){
+        try{
+          await signInWithEmailAndPassword(auth, email, pw);
+          pwEl.value = '';
+        }catch(e){
+          showError('Could not sign in — check your email and password.');
+        }
+        return;
+      }
+      const code = normalizeCode(signupCodeEl.value);
+      if(!code){
+        showError('Enter the house code — ask your housemate for it.');
+        return;
+      }
+      // Picked up by onAuthStateChanged once the new account is signed in.
+      pendingCode = code;
       try{
-        await signInWithEmailAndPassword(auth, email, pw);
+        await createUserWithEmailAndPassword(auth, email, pw);
         pwEl.value = '';
       }catch(e){
-        errEl.textContent = 'Could not sign in — check your email and password.';
-        errEl.style.display = 'block';
+        pendingCode = null;
+        console.error(e);
+        showError(signupErrorMessage(e));
       }
     }
 
+    async function attemptJoin(){
+      showError('');
+      const code = normalizeCode(joinCodeEl.value);
+      if(!code){
+        showError('Enter the house code.');
+        return;
+      }
+      if(await joinHouse(auth.currentUser, code)){
+        joinCodeEl.value = '';
+        startApp();
+      } else {
+        showError('That house code isn’t right.');
+      }
+    }
+
+    // Reload after signing out so the live database listeners stop cleanly.
+    const doSignOut = () => signOut(auth).then(() => location.reload());
+
     loginBtn.onclick = attemptLogin;
     pwEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptLogin(); });
-    // Reload after signing out so the live database listeners stop cleanly.
-    signOutBtn.onclick = () => signOut(auth).then(() => location.reload());
+    signupCodeEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptLogin(); });
+    modeToggle.onclick = () => setMode(!signupMode);
+    document.getElementById('joinBtn').onclick = attemptJoin;
+    joinCodeEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptJoin(); });
+    document.getElementById('codeSignOut').onclick = doSignOut;
+    signOutBtn.onclick = doSignOut;
   }
 
   wireAuthUI();
 
-  onAuthStateChanged(auth, (user) => {
-    const loginScreen = document.getElementById('loginScreen');
-    const appRoot = document.getElementById('appRoot');
-    if(user){
-      loginScreen.style.display = 'none';
-      appRoot.style.display = 'block';
-      if(!appStarted){
-        appStarted = true;
-        init();
-      }
-    } else {
-      loginScreen.style.display = 'flex';
-      appRoot.style.display = 'none';
+  onAuthStateChanged(auth, async (user) => {
+    if(!user){
+      showScreen('login');
+      return;
     }
+    if(pendingCode){
+      const code = pendingCode;
+      pendingCode = null;
+      if(await joinHouse(user, code)){
+        startApp();
+        return;
+      }
+      showScreen('code');
+      showError('Your account was created, but that house code isn’t right. Try again.');
+      return;
+    }
+    try{
+      if(await isMember(user)){
+        startApp();
+        return;
+      }
+    }catch(e){
+      console.error(e);
+      showScreen('code');
+      showError('Couldn’t reach the database — check your connection and reload.');
+      return;
+    }
+    showScreen('code');
   });
 })();
 </script>
