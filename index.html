@@ -1255,6 +1255,19 @@ const auth = getAuth(fbApp);
     }
   }
 
+  function signinErrorMessage(e){
+    switch(e && e.code){
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+      case 'auth/invalid-email': return 'Wrong email or password.';
+      case 'auth/user-disabled': return 'This account has been disabled — re-enable it in the Firebase console.';
+      case 'auth/too-many-requests': return 'Too many attempts — Firebase has paused sign-in for a while. Try again later.';
+      case 'auth/network-request-failed': return 'Couldn’t connect — check your internet connection.';
+      default: return 'Could not sign in (' + ((e && e.code) || 'unknown error') + ').';
+    }
+  }
+
   function signupErrorMessage(e){
     switch(e && e.code){
       case 'auth/email-already-in-use': return 'There’s already an account with that email — sign in instead.';
@@ -1297,7 +1310,8 @@ const auth = getAuth(fbApp);
           await signInWithEmailAndPassword(auth, email, pw);
           pwEl.value = '';
         }catch(e){
-          showError('Could not sign in — check your email and password.');
+          console.error(e);
+          showError(signinErrorMessage(e));
         }
         return;
       }
