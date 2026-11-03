@@ -535,7 +535,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, deleteField } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -647,6 +647,18 @@ const auth = getAuth(fbApp);
     return { year: d.getUTCFullYear(), week: week };
   }
 
+  // Rotation counts whole weeks since a fixed Monday rather than using the ISO
+  // week number, so 53-week years don't give one person two weeks in a row.
+  // 22 Dec 2025 keeps the same person on duty as the old week-number rotation in 2026.
+  const ROTA_EPOCH = Date.UTC(2025, 11, 22);
+
+  function rotaIndex(date){
+    const d = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayNum = (new Date(d).getUTCDay() + 6) % 7;
+    const monday = d - dayNum * 86400000;
+    return Math.round((monday - ROTA_EPOCH) / (7*86400000));
+  }
+
   function getWeekRange(date){
     const day = (date.getDay() + 6) % 7;
     const monday = new Date(date);
@@ -676,23 +688,41 @@ const auth = getAuth(fbApp);
   }
 
   async function loadConfig(){
+    let snap;
     try{
-      const snap = await getDoc(configDocRef);
-      if(snap.exists()){
-        const data = snap.data();
-        if(Array.isArray(data.people) && Array.isArray(data.chores)){
-          state = { people: data.people, chores: data.chores };
-          return;
-        }
+      snap = await getDoc(configDocRef);
+    }catch(e){
+      // Don't fall back to defaults here: saving them would overwrite the real
+      // chore list once the connection comes back. The live listener fills it in.
+      console.error(e);
+      showStorageWarning();
+      return;
+    }
+    if(snap.exists()){
+      const data = snap.data();
+      if(Array.isArray(data.people) && Array.isArray(data.chores)){
+        state = { people: data.people, chores: data.chores };
+        return;
       }
-    }catch(e){ console.error(e); showStorageWarning(); }
+    }
+    // Only seed defaults when the database confirms there's no config yet.
     state.chores = DEFAULT_CHORES.map(name => ({ id: uid(), name }));
-    await saveConfig();
+    await updateConfig(() => {});
   }
 
-  async function saveConfig(){
+  // Applies a change to the latest saved config inside a transaction, so an edit
+  // made on the other phone at the same moment isn't overwritten.
+  async function updateConfig(mutate){
     try{
-      await setDoc(configDocRef, { people: state.people, chores: state.chores });
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(configDocRef);
+        const data = snap.exists() ? snap.data() : null;
+        const latest = (data && Array.isArray(data.people) && Array.isArray(data.chores))
+          ? { people: data.people, chores: data.chores }
+          : { people: state.people, chores: state.chores };
+        mutate(latest);
+        tx.set(configDocRef, latest);
+      });
     }catch(e){ console.error(e); showStorageWarning(); }
   }
 
@@ -715,17 +745,21 @@ const auth = getAuth(fbApp);
     }
   }
 
-  async function saveWeekData(){
+  // Writes only the fields that changed, so ticking different chores on two
+  // phones at once doesn't undo each other's ticks.
+  async function saveWeekData(fields){
     try{
-      await setDoc(weekDocRef, { completions, swapped }, { merge: true });
+      await setDoc(weekDocRef, fields, { merge: true });
     }catch(e){ console.error(e); showStorageWarning(); }
   }
 
-  async function saveCompletions(){ await saveWeekData(); }
-  async function saveSwap(){ await saveWeekData(); }
+  async function saveCompletion(id){
+    await saveWeekData({ completions: { [id]: completions[id] ? true : deleteField() } });
+  }
+  async function saveSwap(){ await saveWeekData({ swapped }); }
 
-  function assignedIndexFor(week, isSwapped){
-    let base = week % 2;
+  function assignedIndexFor(rotaIdx, isSwapped){
+    let base = ((rotaIdx % 2) + 2) % 2;
     if(isSwapped) base = 1 - base;
     return base;
   }
@@ -736,7 +770,7 @@ const auth = getAuth(fbApp);
     document.getElementById('weekNum').textContent = 'W' + weekInfo.week;
     document.getElementById('weekRange').textContent = getWeekRange(now);
 
-    const onDutyIdx = assignedIndexFor(weekInfo.week, swapped);
+    const onDutyIdx = assignedIndexFor(rotaIndex(now), swapped);
     const chips = document.getElementById('chips');
     chips.innerHTML = '';
     state.people.forEach((name, i) => {
@@ -823,10 +857,12 @@ const auth = getAuth(fbApp);
     document.getElementById('progressFill').style.width = pct + '%';
     document.getElementById('progressLabel').textContent = doneCount + '/' + total + ' done';
 
-    const nextWeek = weekInfo.week + 1;
+    const nextDate = new Date(now);
+    nextDate.setDate(now.getDate() + 7);
+    const nextWeek = getISOWeek(nextDate).week;
     const previewEl = document.getElementById('preview');
     if(state.chores.length && state.people.length === 2){
-      const nextIdx = assignedIndexFor(nextWeek, false);
+      const nextIdx = assignedIndexFor(rotaIndex(nextDate), false);
       previewEl.style.display = 'flex';
       previewEl.innerHTML = '<span class="label">Next week (W'+nextWeek+')</span><span class="who">'+escapeHtml(state.people[nextIdx])+'\u2019s turn</span>';
     } else {
@@ -909,46 +945,52 @@ const auth = getAuth(fbApp);
 
   async function saveSpecEdit(id, text){
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const chore = state.chores.find(c => c.id === id);
-    if(chore){
-      chore.spec = lines;
-      await saveConfig();
-    }
+    const setSpec = (s) => {
+      const chore = s.chores.find(c => c.id === id);
+      if(chore) chore.spec = lines;
+    };
+    setSpec(state);
     editingSpecId = null;
     render();
+    await updateConfig(setSpec);
   }
 
   async function toggleDone(id){
     completions[id] = !completions[id];
     render();
-    await saveCompletions();
+    await saveCompletion(id);
   }
 
   async function removeChore(id){
-    state.chores = state.chores.filter(c => c.id !== id);
+    const chore = state.chores.find(c => c.id === id);
+    if(!chore || !confirm('Remove "' + chore.name + '" from the rota?')) return;
+    const drop = (s) => { s.chores = s.chores.filter(c => c.id !== id); };
+    drop(state);
     delete completions[id];
     render();
-    await saveConfig();
-    await saveCompletions();
+    await updateConfig(drop);
+    await saveCompletion(id);
   }
 
   async function addChore(){
     const input = document.getElementById('newChore');
     const val = input.value.trim();
     if(!val) return;
-    state.chores.push({ id: uid(), name: val });
+    const chore = { id: uid(), name: val };
+    state.chores.push(chore);
     input.value = '';
     render();
-    await saveConfig();
+    await updateConfig((s) => { s.chores.push(chore); });
   }
 
   async function renamePerson(idx){
     const current = state.people[idx];
     const next = prompt('Name for this person:', current);
     if(next && next.trim()){
-      state.people[idx] = next.trim().slice(0, 24);
+      const name = next.trim().slice(0, 24);
+      state.people[idx] = name;
       render();
-      await saveConfig();
+      await updateConfig((s) => { s.people[idx] = name; });
     }
   }
 
@@ -1034,9 +1076,18 @@ const auth = getAuth(fbApp);
     }
   }
 
-  async function saveShopping(){
+  // Applies the change locally straight away, then again to the latest saved
+  // list inside a transaction so items added on the other phone aren't lost.
+  async function updateShopping(mutate){
+    shopItems = mutate(shopItems);
+    renderShop();
     try{
-      await setDoc(shopDocRef, { items: shopItems });
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(shopDocRef);
+        const data = snap.exists() ? snap.data() : null;
+        const latest = data && Array.isArray(data.items) ? data.items : [];
+        tx.set(shopDocRef, { items: mutate(latest) });
+      });
     }catch(e){ console.error(e); showStorageWarning(); }
   }
 
@@ -1044,29 +1095,24 @@ const auth = getAuth(fbApp);
     const input = document.getElementById('newShopItem');
     const val = input.value.trim();
     if(!val) return;
-    shopItems.push({ id: uid(), name: val, bought: false });
+    const item = { id: uid(), name: val, bought: false };
     input.value = '';
-    renderShop();
-    await saveShopping();
+    await updateShopping(items => [...items, item]);
   }
 
   async function toggleShopBought(id){
-    const item = shopItems.find(i => i.id === id);
-    if(item) item.bought = !item.bought;
-    renderShop();
-    await saveShopping();
+    const current = shopItems.find(i => i.id === id);
+    if(!current) return;
+    const bought = !current.bought;
+    await updateShopping(items => items.map(i => i.id === id ? { ...i, bought } : i));
   }
 
   async function removeShopItem(id){
-    shopItems = shopItems.filter(i => i.id !== id);
-    renderShop();
-    await saveShopping();
+    await updateShopping(items => items.filter(i => i.id !== id));
   }
 
   async function clearBought(){
-    shopItems = shopItems.filter(i => !i.bought);
-    renderShop();
-    await saveShopping();
+    await updateShopping(items => items.filter(i => !i.bought));
   }
 
   async function init(){
@@ -1119,6 +1165,14 @@ const auth = getAuth(fbApp);
       shopItems = Array.isArray(data.items) ? data.items : [];
       renderShop();
     }, (err) => { console.error(err); showStorageWarning(); });
+
+    // If the app is left open into a new week (e.g. on a phone over the weekend),
+    // reload when it comes back into view so it shows the new week's rota.
+    document.addEventListener('visibilitychange', () => {
+      if(document.visibilityState !== 'visible') return;
+      const w = getISOWeek(new Date());
+      if(w.year + '-W' + w.week !== weekKey) location.reload();
+    });
   }
 
   let appStarted = false;
@@ -1150,7 +1204,8 @@ const auth = getAuth(fbApp);
 
     loginBtn.onclick = attemptLogin;
     pwEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptLogin(); });
-    signOutBtn.onclick = () => signOut(auth);
+    // Reload after signing out so the live database listeners stop cleanly.
+    signOutBtn.onclick = () => signOut(auth).then(() => location.reload());
   }
 
   wireAuthUI();
